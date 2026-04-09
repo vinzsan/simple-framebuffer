@@ -1,3 +1,4 @@
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +36,13 @@ typedef struct FrameBufferTerminalSettings {
 
   int save_fd;
 } FrameBufferTerminalSettings;
+
+typedef struct FrameBufferRectangle {
+  int x;
+  int y;
+  int width;
+  int height;
+} FrameBufferRectangle;
 
 static void init_frame_context(FrameBufferContext *ctx){
   ctx->fd = open("/dev/fb0",O_RDWR);
@@ -132,6 +140,9 @@ static int set_raw_terminal(FrameBufferTerminalSettings *fb_term){
 
   fb_term->new.c_lflag &= ~(ECHO | ICANON);
   fb_term->new.c_oflag &= ~(OPOST);
+
+  fb_term->new.c_cc[VMIN] = 0;
+  fb_term->new.c_cc[VTIME] = 0;
   return tcsetattr(fb_term->save_fd,TCSANOW,&fb_term->new);
 }
 
@@ -168,26 +179,53 @@ int main(int argc,char *argv[]){
   FrameBufferTerminalSettings term = {0};
   set_raw_terminal(&term);
 
+  FrameBufferRectangle dst_box = {100,100,100,100};
+
+  float speed = 150.0f;
+  fcntl(STDIN_FILENO,F_SETFL,fcntl(STDIN_FILENO,F_GETFL,0) | O_NONBLOCK);
+
   while(1){
-    frames++;
     gettimeofday(&timenow_t,NULL);
-    double elapsed = (timenow_t.tv_sec - timestart_t.tv_sec) + 
+    double delta = (timenow_t.tv_sec - timestart_t.tv_sec) + 
       (timenow_t.tv_usec - timestart_t.tv_usec) / 1e6;
-    if(elapsed >= 5.0) break;
+
+    timestart_t = timenow_t;
 
     for(int i = 0;i < screen_size;i++){
-      fbcontext.fbcached[i] = make_rgba_color(&fbcontext,0,0,200,255);
+      fbcontext.fbcached[i] = make_rgba_color(&fbcontext,0,0,200,0);
     }
 
-    draw_rect2d(&fbcontext, 100,100,800,600,make_rgba_color(&fbcontext, 0,150,100,255));
+    draw_rect2d(&fbcontext, 100,100,800,600,make_rgba_color(&fbcontext, 0,150,100,0));
+    draw_rect2d(&fbcontext, dst_box.x,dst_box.y,dst_box.width,dst_box.height,make_rgba_color(&fbcontext,255,0,0,0));
     uint32_t line_color = make_rgba_color(&fbcontext, 255,0,0,100);
 
     draw_line2d(&fbcontext,&start_pos,&end_pos,0,line_color);
-    end_pos.x -= 1;
+
+    char event_key[2] = {0};
+    read(STDIN_FILENO,event_key,sizeof(event_key));
+
+    if(event_key[0] == 'q'){
+      break;
+    } else if(event_key[0] == 'w'){
+      dst_box.y -= (int)(speed * delta);
+    } else if(event_key[0] == 's'){
+      dst_box.y += (int)(speed * delta);
+    } else if(event_key[0] == 'd'){
+      dst_box.x += (int)(speed * delta);
+    } else if(event_key[0] == 'a') {
+      dst_box.x -= (int)(speed * delta);
+    }
+
+    if(dst_box.x < 0) dst_box.x = 0;
+    if(dst_box.x > fbcontext.vscreeninfo.xres - dst_box.width) dst_box.x = fbcontext.vscreeninfo.xres - dst_box.width;
+
+    if(dst_box.y < 0) dst_box.y = 0;
+    if(dst_box.y > fbcontext.vscreeninfo.yres - dst_box.height) dst_box.y = fbcontext.vscreeninfo.yres - dst_box.height;
 
     frame_context_present(&fbcontext);
     usleep(16666);
   }
+
   reset_terminal(&term);
   frame_context_cleanup(&fbcontext);
   return 0;
