@@ -4,8 +4,9 @@
 #include <string.h>
 #include <stdint.h>
 #include <assert.h>
-#include <sys/time.h>
+#include <time.h>
 
+#include <sys/time.h>
 #include <linux/fb.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -43,6 +44,13 @@ typedef struct FrameBufferRectangle {
   int width;
   int height;
 } FrameBufferRectangle;
+
+typedef struct FrameBufferSharedInstace {
+  FrameBufferContext *shared_context_ref;
+
+  /* saved = runtime,dll */
+  uint32_t flags_shared;
+} FrameBufferSharedInstace;
 
 static void init_frame_context(FrameBufferContext *ctx){
   ctx->fd = open("/dev/fb0",O_RDWR);
@@ -156,6 +164,29 @@ static void frame_context_present(FrameBufferContext *ctx){
     memcpy(ctx->fbmem,ctx->fbcached,ctx->screen_size);
 }
 
+static int check_collision(FrameBufferRectangle *a, FrameBufferRectangle *b){
+  return (
+    a->x < b->x + b->width &&
+    a->x + a->width > b->x &&
+    a->y < b->y + b->height &&
+    a->y + a->height > b->y
+  );
+}
+
+static void second_box_instance(FrameBufferContext *ctx,FrameBufferRectangle *box_first,FrameBufferRectangle *box_second){
+  if(check_collision(box_first,box_second)){
+    box_second->x = rand() % (ctx->vscreeninfo.xres - box_second->width);
+    box_second->y = rand() % (ctx->vscreeninfo.yres - box_second->height);
+  }
+}
+/* configure test */
+static void auto_box_instance(FrameBufferContext *ctx,FrameBufferRectangle *box_first,FrameBufferRectangle *box_second){ 
+  if(check_collision(box_first,box_second)){
+    box_second->x = rand() % (ctx->vscreeninfo.xres - box_second->width);
+    box_second->y = rand() % (ctx->vscreeninfo.yres - box_second->height);
+  }
+}
+
 int main(int argc,char *argv[]){
   FrameBufferContext fbcontext = {0};
   init_frame_context(&fbcontext);
@@ -170,18 +201,31 @@ int main(int argc,char *argv[]){
   struct timeval timestart_t,timenow_t = {0};
   int frames = 0;
 
+  srand(time(NULL));
   gettimeofday(&timestart_t,NULL);
 
   for(int i = 0;i < screen_size;i++){
-      fbcontext.fbmem[i] = make_rgba_color(&fbcontext,0,0,200,255);
+      fbcontext.fbcached[i] = make_rgba_color(&fbcontext,0,0,200,255);
   }
 
   FrameBufferTerminalSettings term = {0};
   set_raw_terminal(&term);
 
   FrameBufferRectangle dst_box = {100,100,100,100};
+  FrameBufferRectangle dst_second_box = {
+    .x = rand() % (fbcontext.vscreeninfo.xres - 100),
+    .y = rand() % (fbcontext.vscreeninfo.yres - 100),
+    .width = 100,
+    .height = 100
+  };
+  FrameBufferRectangle dst_third_box = {
+    .x = rand() % (fbcontext.vscreeninfo.xres - 200),
+    .y = rand() % (fbcontext.vscreeninfo.yres - 200),
+    .width = 200,
+    .height = 200,
+  };
 
-  float speed = 150.0f;
+  float speed = 250.0f;
   fcntl(STDIN_FILENO,F_SETFL,fcntl(STDIN_FILENO,F_GETFL,0) | O_NONBLOCK);
 
   while(1){
@@ -196,6 +240,11 @@ int main(int argc,char *argv[]){
     }
 
     draw_rect2d(&fbcontext, 100,100,800,600,make_rgba_color(&fbcontext, 0,150,100,0));
+    draw_rect2d(&fbcontext, dst_second_box.x,dst_second_box.y,dst_second_box.width,dst_second_box.height,
+        make_rgba_color(&fbcontext,100,100,100,0));
+    draw_rect2d(&fbcontext, dst_third_box.x,dst_third_box.y,dst_third_box.width,dst_third_box.height,
+        make_rgba_color(&fbcontext,0,0,0,0));
+
     draw_rect2d(&fbcontext, dst_box.x,dst_box.y,dst_box.width,dst_box.height,make_rgba_color(&fbcontext,255,0,0,0));
     uint32_t line_color = make_rgba_color(&fbcontext, 255,0,0,100);
 
@@ -221,6 +270,9 @@ int main(int argc,char *argv[]){
 
     if(dst_box.y < 0) dst_box.y = 0;
     if(dst_box.y > fbcontext.vscreeninfo.yres - dst_box.height) dst_box.y = fbcontext.vscreeninfo.yres - dst_box.height;
+
+    auto_box_instance(&fbcontext, &dst_box,&dst_second_box);
+    second_box_instance(&fbcontext,&dst_box,&dst_third_box);
 
     frame_context_present(&fbcontext);
     usleep(16666);
