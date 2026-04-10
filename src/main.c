@@ -1,4 +1,3 @@
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -6,197 +5,34 @@
 #include <assert.h>
 #include <time.h>
 
-#include <sys/time.h>
-#include <linux/fb.h>
-#include <sys/mman.h>
-#include <unistd.h>
-#include <stdbit.h>
-#include <sys/fcntl.h>
-#include <sys/ioctl.h>
-#include <termios.h>
+#include "../include/bitframe_context.h"
 
-typedef struct FrameBufferContext {
-  uint32_t *fbmem;
-  uint32_t *fbcached;
-  int fd;
-  
-  struct fb_var_screeninfo vscreeninfo;
-  struct fb_fix_screeninfo fscreeninfo;
-
-  size_t screen_size;
-} FrameBufferContext;
-
-typedef struct FrameBufferVector2D {
-  int x;
-  int y;
-} FrameBufferVector2D;
-
-typedef struct FrameBufferTerminalSettings {
-  struct termios old;
-  struct termios new;
-
-  int save_fd;
-} FrameBufferTerminalSettings;
-
-typedef struct FrameBufferRectangle {
-  int x;
-  int y;
-  int width;
-  int height;
-} FrameBufferRectangle;
-
-typedef struct FrameBufferSharedInstace {
-  FrameBufferContext *shared_context_ref;
-
-  /* saved = runtime,dll */
-  uint32_t flags_shared;
-} FrameBufferSharedInstace;
-
-static void init_frame_context(FrameBufferContext *ctx){
-  ctx->fd = open("/dev/fb0",O_RDWR);
-  if(ctx->fd < 0) {
-    fprintf(stderr,"ERR: failed open /dev/fb0\n");
-    abort();
-  }
-
-  if(ioctl(ctx->fd,FBIOGET_VSCREENINFO,&ctx->vscreeninfo) < 0){
-    fprintf(stderr,"ERR: failed get var screeninfo\n");
-    abort();
-  }
-
-  if(ioctl(ctx->fd,FBIOGET_FSCREENINFO,&ctx->fscreeninfo) < 0){
-    fprintf(stderr,"ERR: failed get fix screeninfo\n");
-    abort();
-  }
-
-  ctx->screen_size = ctx->vscreeninfo.xres * ctx->vscreeninfo.yres * 
-    (ctx->vscreeninfo.bits_per_pixel >> 3);
-}
-
-static void *alloc_frame_buffer(FrameBufferContext *fctx){
-  fctx->fbmem = (uint32_t *)mmap(NULL,fctx->screen_size,PROT_READ | PROT_WRITE,
-      MAP_SHARED,fctx->fd,0);
-  assert(fctx->fbmem != MAP_FAILED);
-
-  fctx->fbcached = malloc(fctx->screen_size);
-  assert(fctx->fbcached != NULL);
-  return fctx->fbmem;
-}
-
-static void frame_context_cleanup(FrameBufferContext *ctx){
-  if(ctx->fbcached) free(ctx->fbcached);
-  if(ctx->fbmem){ munmap(ctx->fbmem,ctx->screen_size);}
-  close(ctx->fd);
-}
-
-static uint32_t make_rgba_color(FrameBufferContext *ctx,uint8_t red,uint8_t green,uint8_t blue,uint8_t alpha){
-  return (red << ctx->vscreeninfo.red.offset) | (green << ctx->vscreeninfo.green.offset) |
-    (blue << ctx->vscreeninfo.blue.offset) | (alpha << ctx->vscreeninfo.transp.offset);
-}
-
-static void draw_rect2d(FrameBufferContext *ctx,int x,int y,int width,int heigt,uint32_t color){
-  int stride = ctx->fscreeninfo.line_length / sizeof(uint32_t);
-
-  for(int j = 0;j < heigt;j++){
-    int pos_y = y + j;
-    if(pos_y < 0 || pos_y >= ctx->vscreeninfo.yres) continue;
-    for(int i = 0;i < width;i++){
-      int pos_x = x + i;
-      if(pos_x < 0 || pos_x >= ctx->vscreeninfo.xres) continue;
-
-      ctx->fbcached[pos_y * stride + pos_x] = color;
-    }
-  }
-}
-
-static void draw_line2d(FrameBufferContext *ctx,FrameBufferVector2D *start_pos,FrameBufferVector2D *end_pos,
-    int size,uint32_t color){
-
-  int stride = ctx->fscreeninfo.line_length / sizeof(uint32_t);
-
-  int start_x_pos = start_pos->x;
-  int start_y_pos = start_pos->y;
-
-  int end_x_pos = end_pos->x;
-  int end_y_pos = end_pos->y;
-
-  int dx = abs(end_x_pos - start_x_pos);
-  int dy = abs(end_y_pos - start_y_pos);
-
-  int sx = (start_x_pos < end_x_pos) ? 1 : -1;
-  int sy = (start_y_pos < end_y_pos) ? 1 : -1;
-  int err = dx - dy;
-
-  while(1){
-    if(start_x_pos >= 0 && start_x_pos < ctx->vscreeninfo.xres && start_y_pos >= 0 &&
-        start_y_pos < ctx->vscreeninfo.yres){
-      int size = 10;
-      ctx->fbcached[start_y_pos * stride + start_x_pos] = color;
-    }
-
-    if(start_x_pos == end_x_pos && start_y_pos == end_y_pos) break;
-    int e2 = 2 * err;
-    if(e2 > -dy) { err -=dy; start_x_pos += sx; }
-    if(e2 < dx) { err += dx; start_y_pos += sy; }
-  }
-}
-
-static int set_raw_terminal(FrameBufferTerminalSettings *fb_term){
-  write(STDOUT_FILENO, "\e[?25l", 6);
-  if(tcgetattr(fb_term->save_fd,&fb_term->old) < 0) return -1;
-  fb_term->new = fb_term->old;
-
-  fb_term->new.c_lflag &= ~(ECHO | ICANON);
-  fb_term->new.c_oflag &= ~(OPOST);
-
-  fb_term->new.c_cc[VMIN] = 0;
-  fb_term->new.c_cc[VTIME] = 0;
-  return tcsetattr(fb_term->save_fd,TCSANOW,&fb_term->new);
-}
-
-static int reset_terminal(FrameBufferTerminalSettings *fb_term){
-  write(STDOUT_FILENO, "\e[?25h", 6);
-  return tcsetattr(fb_term->save_fd,TCSANOW,&fb_term->old);
-}
-
-static void frame_context_present(FrameBufferContext *ctx){
-  if(ctx->fbcached)
-    memcpy(ctx->fbmem,ctx->fbcached,ctx->screen_size);
-}
-
-static int check_collision(FrameBufferRectangle *a, FrameBufferRectangle *b){
-  return (
-    a->x < b->x + b->width &&
-    a->x + a->width > b->x &&
-    a->y < b->y + b->height &&
-    a->y + a->height > b->y
-  );
-}
-
-static void second_box_instance(FrameBufferContext *ctx,FrameBufferRectangle *box_first,FrameBufferRectangle *box_second){
-  if(check_collision(box_first,box_second)){
+static void second_box_instance(BitFrame_Context *ctx,BitFrame_Rectangle2D *box_first,BitFrame_Rectangle2D *box_second,int *point){
+  if(bit_frame_check_collision(box_first,box_second)){
     box_second->x = rand() % (ctx->vscreeninfo.xres - box_second->width);
     box_second->y = rand() % (ctx->vscreeninfo.yres - box_second->height);
+    *point += 1;
   }
 }
 /* configure test */
-static void auto_box_instance(FrameBufferContext *ctx,FrameBufferRectangle *box_first,FrameBufferRectangle *box_second){ 
-  if(check_collision(box_first,box_second)){
+static void auto_box_instance(BitFrame_Context *ctx,BitFrame_Rectangle2D *box_first,BitFrame_Rectangle2D *box_second,int *point){
+  if(bit_frame_check_collision(box_first,box_second)){
     box_second->x = rand() % (ctx->vscreeninfo.xres - box_second->width);
     box_second->y = rand() % (ctx->vscreeninfo.yres - box_second->height);
+    *point += 1;
   }
 }
 
 int main(int argc,char *argv[]){
-  FrameBufferContext fbcontext = {0};
-  init_frame_context(&fbcontext);
-  fbcontext.fbmem = alloc_frame_buffer(&fbcontext);
+  BitFrame_Context fbcontext = {0};
+  init_bit_frame_context(&fbcontext);
+  fbcontext.fbmem = alloc_bit_frame_buffer(&fbcontext);
 
   size_t stride = fbcontext.fscreeninfo.line_length / sizeof(uint32_t);
   size_t screen_size = fbcontext.vscreeninfo.yres * stride;
 
-  FrameBufferVector2D start_pos = {100,100};
-  FrameBufferVector2D end_pos = {300,300};
+  BitFrame_Vector2D start_pos = {100,100};
+  BitFrame_Vector2D end_pos = {300,300};
 
   struct timeval timestart_t,timenow_t = {0};
   int frames = 0;
@@ -208,25 +44,49 @@ int main(int argc,char *argv[]){
       fbcontext.fbcached[i] = make_rgba_color(&fbcontext,0,0,200,255);
   }
 
-  FrameBufferTerminalSettings term = {0};
-  set_raw_terminal(&term);
+  BitFrame_TerminalSettings term = {0};
+  term.save_fd = STDIN_FILENO;
+  bit_frame_set_raw_terminal(&term);
 
-  FrameBufferRectangle dst_box = {100,100,100,100};
-  FrameBufferRectangle dst_second_box = {
+  BitFrame_Rectangle2D dst_box = {100,100,100,100};
+  BitFrame_Rectangle2D dst_second_box = {
     .x = rand() % (fbcontext.vscreeninfo.xres - 100),
     .y = rand() % (fbcontext.vscreeninfo.yres - 100),
     .width = 100,
     .height = 100
   };
-  FrameBufferRectangle dst_third_box = {
+  BitFrame_Rectangle2D dst_third_box = {
     .x = rand() % (fbcontext.vscreeninfo.xres - 200),
     .y = rand() % (fbcontext.vscreeninfo.yres - 200),
     .width = 200,
     .height = 200,
   };
 
+  BitFrame_FontInstance font_context = {0};
+  if (bit_frame_init_load_font_instance(&fbcontext,&font_context,"./maple.ttf",30))
+  {
+    fprintf(stderr,"ERR: failed to load font\n");
+    return -1;
+  }
+
+  bit_frame_load_font_to_cached(&font_context);
+
   float speed = 250.0f;
   fcntl(STDIN_FILENO,F_SETFL,fcntl(STDIN_FILENO,F_GETFL,0) | O_NONBLOCK);
+
+  BitFrame_Vector2D frame_size = {
+    .x = fbcontext.vscreeninfo.xres,
+    .y = fbcontext.vscreeninfo.yres
+  };
+
+  BitFrame_Rectangle2D border_size = {
+    .x = 100,
+    .y = 100,
+    .width = frame_size.x - (100 << 1),
+    .height = frame_size.y - (100 << 1),
+  };
+
+  int point = 0;
 
   while(1){
     gettimeofday(&timenow_t,NULL);
@@ -239,16 +99,28 @@ int main(int argc,char *argv[]){
       fbcontext.fbcached[i] = make_rgba_color(&fbcontext,0,0,200,0);
     }
 
-    draw_rect2d(&fbcontext, 100,100,800,600,make_rgba_color(&fbcontext, 0,150,100,0));
-    draw_rect2d(&fbcontext, dst_second_box.x,dst_second_box.y,dst_second_box.width,dst_second_box.height,
+    bit_frame_draw_rect2d(&fbcontext, border_size.x,border_size.y,border_size.width,border_size.height,
+      make_rgba_color(&fbcontext, 0,0,100,0));
+
+    bit_frame_draw_rect2d(&fbcontext, dst_second_box.x,dst_second_box.y,dst_second_box.width,dst_second_box.height,
         make_rgba_color(&fbcontext,100,100,100,0));
-    draw_rect2d(&fbcontext, dst_third_box.x,dst_third_box.y,dst_third_box.width,dst_third_box.height,
+
+    bit_frame_draw_rect2d(&fbcontext, dst_third_box.x,dst_third_box.y,dst_third_box.width,dst_third_box.height,
         make_rgba_color(&fbcontext,0,0,0,0));
 
-    draw_rect2d(&fbcontext, dst_box.x,dst_box.y,dst_box.width,dst_box.height,make_rgba_color(&fbcontext,255,0,0,0));
+    bit_frame_draw_rect2d(&fbcontext, dst_box.x,dst_box.y,dst_box.width,dst_box.height,
+      make_rgba_color(&fbcontext,255,0,0,0));
     uint32_t line_color = make_rgba_color(&fbcontext, 255,0,0,100);
 
-    draw_line2d(&fbcontext,&start_pos,&end_pos,0,line_color);
+    bit_frame_draw_line2d(&fbcontext,&start_pos,&end_pos,0,line_color);
+
+    bit_frame_draw_text(&fbcontext,&font_context,100,100,"Test collision ke box",make_rgba_color(
+      &fbcontext,0,0,0,0));
+
+    char buffer_text[32];
+    snprintf(buffer_text,sizeof(buffer_text),"Score kamu adalah : %d",point);
+    bit_frame_draw_text(&fbcontext,&font_context,10,50,buffer_text,
+        make_rgba_color(&fbcontext,0,0,0,0));
 
     char event_key[2] = {0};
     read(STDIN_FILENO,event_key,sizeof(event_key));
@@ -271,14 +143,14 @@ int main(int argc,char *argv[]){
     if(dst_box.y < 0) dst_box.y = 0;
     if(dst_box.y > fbcontext.vscreeninfo.yres - dst_box.height) dst_box.y = fbcontext.vscreeninfo.yres - dst_box.height;
 
-    auto_box_instance(&fbcontext, &dst_box,&dst_second_box);
-    second_box_instance(&fbcontext,&dst_box,&dst_third_box);
+    auto_box_instance(&fbcontext, &dst_box,&dst_second_box,&point);
+    second_box_instance(&fbcontext,&dst_box,&dst_third_box,&point);
 
-    frame_context_present(&fbcontext);
+    bit_frame_context_present(&fbcontext);
     usleep(16666);
   }
 
-  reset_terminal(&term);
-  frame_context_cleanup(&fbcontext);
+  bit_frame_reset_terminal(&term);
+  bit_frame_context_cleanup(&fbcontext);
   return 0;
 }

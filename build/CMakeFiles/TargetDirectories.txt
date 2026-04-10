@@ -1,3 +1,0 @@
-/home/vinzsan/Vinzsan/RestOfCode/build/CMakeFiles/test.dir
-/home/vinzsan/Vinzsan/RestOfCode/build/CMakeFiles/edit_cache.dir
-/home/vinzsan/Vinzsan/RestOfCode/build/CMakeFiles/rebuild_cache.dir
