@@ -7,7 +7,7 @@ Framebuffer adalah bagian dari memori RAM (seringkali pada kartu grafis/GPU) yan
 
 > unit test
 
-[![Demo](assets/record_bit_frame_1.mp4)](assets/record_bit_frame_1.mp4)
+![Demo](/assets/record_bit_frame_1.mp4)
 
 - features
     - [x] window rendering
