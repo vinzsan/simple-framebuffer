@@ -129,11 +129,19 @@ void bit_frame_context_cleanup(BitFrame_Context *ctx){
   close(ctx->fd);
 }
 
+__attribute__((hot))
 uint32_t make_rgba_color(BitFrame_Context *ctx,uint8_t red,uint8_t green,uint8_t blue,uint8_t alpha){
   return (red << ctx->vscreeninfo.red.offset) | (green << ctx->vscreeninfo.green.offset) |
     (blue << ctx->vscreeninfo.blue.offset) | (alpha << ctx->vscreeninfo.transp.offset);
 }
 
+void bit_frame_fill_canvas(BitFrame_Context *ctx,uint32_t color){
+  for(int i = 0;i < ctx->screen_size;i++){
+    ctx->fbcached[i] = color;
+  }
+}
+
+__attribute__((hot))
 void bit_frame_draw_rect2d(BitFrame_Context *ctx,int x,int y,int width,int height,uint32_t color){
   int stride = ctx->fscreeninfo.line_length / sizeof(uint32_t);
 

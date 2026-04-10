@@ -86,6 +86,8 @@ int main(int argc,char *argv[]){
     .height = frame_size.y - (100 << 1),
   };
 
+  uint32_t black_color = make_rgba_color(&fbcontext,0,0,0,0);
+
   int point = 0;
 
   while(1){
@@ -117,10 +119,14 @@ int main(int argc,char *argv[]){
     bit_frame_draw_text(&fbcontext,&font_context,100,100,"Test collision ke box",make_rgba_color(
       &fbcontext,0,0,0,0));
 
-    char buffer_text[32];
+    char buffer_text[64];
     snprintf(buffer_text,sizeof(buffer_text),"Score kamu adalah : %d",point);
     bit_frame_draw_text(&fbcontext,&font_context,10,50,buffer_text,
-        make_rgba_color(&fbcontext,0,0,0,0));
+        black_color);
+
+    char buffer_speed_text[64];
+    snprintf(buffer_speed_text,sizeof(buffer_speed_text),"Speed Box saat ini adalah : %0.2f",speed);
+    bit_frame_draw_text(&fbcontext,&font_context,10,70,buffer_speed_text,black_color);
 
     char event_key[2] = {0};
     read(STDIN_FILENO,event_key,sizeof(event_key));
@@ -135,6 +141,12 @@ int main(int argc,char *argv[]){
       dst_box.x += (int)(speed * delta);
     } else if(event_key[0] == 'a') {
       dst_box.x -= (int)(speed * delta);
+    }
+
+    if(event_key[0] == '1'){
+      speed += 10.0f;
+    } else if(event_key[0] == '2'){
+      speed = 250.0f;
     }
 
     if(dst_box.x < 0) dst_box.x = 0;
