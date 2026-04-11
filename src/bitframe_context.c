@@ -27,6 +27,7 @@ typedef struct BitFrame_Context {
   struct fb_fix_screeninfo fscreeninfo;
 
   size_t screen_size;
+  size_t fill_size;
 } BitFrame_Context;
 
 typedef struct BitFrame_Vector2D {
@@ -85,6 +86,7 @@ uint32_t make_rgba_color(BitFrame_Context *ctx,uint8_t red,uint8_t green,uint8_t
 void bit_frame_draw_rect2d(BitFrame_Context *ctx,int x,int y,int width,int height,uint32_t color);
 void bit_frame_draw_line2d(BitFrame_Context *ctx,BitFrame_Vector2D *start_pos,BitFrame_Vector2D *end_pos,
   int size,uint32_t color);
+void bit_frame_fill_color(BitFrame_Context *ctx,uint32_t color);
 
 int bit_frame_set_raw_terminal(BitFrame_TerminalSettings *fb_term);
 int bit_frame_reset_terminal(BitFrame_TerminalSettings *fb_term);
@@ -111,6 +113,8 @@ void init_bit_frame_context(BitFrame_Context *ctx){
 
   ctx->screen_size = ctx->vscreeninfo.xres * ctx->vscreeninfo.yres *
     (ctx->vscreeninfo.bits_per_pixel >> 3);
+  ctx->fill_size = ctx->fscreeninfo.line_length / sizeof(uint32_t)
+    * ctx->vscreeninfo.yres;
 }
 
 void *alloc_bit_frame_buffer(BitFrame_Context *fctx){
@@ -135,10 +139,8 @@ uint32_t make_rgba_color(BitFrame_Context *ctx,uint8_t red,uint8_t green,uint8_t
     (blue << ctx->vscreeninfo.blue.offset) | (alpha << ctx->vscreeninfo.transp.offset);
 }
 
-void bit_frame_fill_canvas(BitFrame_Context *ctx,uint32_t color){
-  for(int i = 0;i < ctx->screen_size;i++){
-    ctx->fbcached[i] = color;
-  }
+void bit_frame_fill_color(BitFrame_Context *ctx,uint32_t color){
+  memset(ctx->fbcached,color,ctx->screen_size);
 }
 
 __attribute__((hot))
