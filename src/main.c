@@ -26,10 +26,8 @@ static void auto_box_instance(BitFrame_Context *ctx,BitFrame_Rectangle2D *box_fi
 int main(int argc,char *argv[]){
   BitFrame_Context fbcontext = {0};
   init_bit_frame_context(&fbcontext);
-  fbcontext.fbmem = alloc_bit_frame_buffer(&fbcontext);
 
-  size_t stride = fbcontext.fscreeninfo.line_length / sizeof(uint32_t);
-  size_t screen_size = fbcontext.vscreeninfo.yres * stride;
+  fbcontext.fbmem = alloc_bit_frame_buffer(&fbcontext); 
 
   BitFrame_Vector2D start_pos = {100,100};
   BitFrame_Vector2D end_pos = {300,300};
@@ -40,7 +38,7 @@ int main(int argc,char *argv[]){
   srand(time(NULL));
   gettimeofday(&timestart_t,NULL);
 
-  for(int i = 0;i < screen_size;i++){
+  for(int i = 0;i < fbcontext.fill_size;i++){
       fbcontext.fbcached[i] = make_rgba_color(&fbcontext,0,0,200,255);
   }
 
@@ -87,6 +85,7 @@ int main(int argc,char *argv[]){
   };
 
   uint32_t black_color = make_rgba_color(&fbcontext,0,0,0,0);
+  uint32_t blue_color = make_rgba_color(&fbcontext,0,0,200,0);
 
   int point = 0;
 
@@ -97,8 +96,8 @@ int main(int argc,char *argv[]){
 
     timestart_t = timenow_t;
 
-    for(int i = 0;i < screen_size;i++){
-      fbcontext.fbcached[i] = make_rgba_color(&fbcontext,0,0,200,0);
+    for(int i = 0;i < fbcontext.fill_size;i++){
+      fbcontext.fbcached[i] = blue_color;
     }
 
     bit_frame_draw_rect2d(&fbcontext, border_size.x,border_size.y,border_size.width,border_size.height,

@@ -28,6 +28,7 @@ typedef struct BitFrame_Context {
   struct fb_fix_screeninfo fscreeninfo;
 
   size_t screen_size;
+  size_t fill_size;
 } BitFrame_Context;
 
 typedef struct BitFrame_Vector2D {
@@ -88,6 +89,7 @@ extern uint32_t make_rgba_color(BitFrame_Context *ctx,uint8_t red,uint8_t green,
 extern void bit_frame_draw_rect2d(BitFrame_Context *ctx,int x,int y,int width,int height,uint32_t color);
 extern void bit_frame_draw_line2d(BitFrame_Context *ctx,BitFrame_Vector2D *start_pos,BitFrame_Vector2D *end_pos,
     int size,uint32_t color);
+extern void bit_frame_fill_color(BitFrame_Context *ctx,uint32_t color);
 
 extern int bit_frame_set_raw_terminal(BitFrame_TerminalSettings *fb_term);
 extern int bit_frame_reset_terminal(BitFrame_TerminalSettings *fb_term);
