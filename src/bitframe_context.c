@@ -1,3 +1,5 @@
+#include <fcntl.h>
+#include <linux/input-event-codes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +16,7 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <math.h>
+#include <linux/input.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../include/stb_truetype.h"
@@ -53,6 +56,7 @@ typedef struct BitFrame_SharedInstance {
   BitFrame_Context *shared_context_ref;
 
   /* saved = runtime,dll */
+  void *shared_instance;
   uint32_t flags_shared;
 } BitFrame_SharedInstance;
 
@@ -67,6 +71,11 @@ typedef struct BitFrame_Glyps {
   int advance;
 } BitFrame_Glyps;
 
+typedef struct BitFrame_TextMetrics {
+  int width;
+  int height;
+} BitFrame_TextMetrics;
+
 typedef struct BitFrame_FontInstance {
   FILE *ttf_file;
   size_t length_file;
@@ -78,6 +87,15 @@ typedef struct BitFrame_FontInstance {
   BitFrame_Glyps glyph_cached[128];
 } BitFrame_FontInstance;
 
+typedef struct BitFrame_MouseEvent {
+  int x;
+  int y;
+  int left;
+  int right;
+  int middle;
+  int fd;
+} BitFrame_MouseEvent;
+
 void init_bit_frame_context(BitFrame_Context *fbctx);
 void *alloc_bit_frame_buffer(BitFrame_Context *fctx);
 void bit_frame_context_cleanup(BitFrame_Context *ctx);
@@ -87,12 +105,17 @@ void bit_frame_draw_rect2d(BitFrame_Context *ctx,int x,int y,int width,int heigh
 void bit_frame_draw_line2d(BitFrame_Context *ctx,BitFrame_Vector2D *start_pos,BitFrame_Vector2D *end_pos,
   int size,uint32_t color);
 void bit_frame_fill_color(BitFrame_Context *ctx,uint32_t color);
+BitFrame_TextMetrics bit_frame_measure_text(BitFrame_FontInstance *font,const char *__restrict__ text);
+void bit_frame_close_font(BitFrame_FontInstance *font);
 
 int bit_frame_set_raw_terminal(BitFrame_TerminalSettings *fb_term);
 int bit_frame_reset_terminal(BitFrame_TerminalSettings *fb_term);
 
 void bit_frame_context_present(BitFrame_Context *ctx);
 int bit_frame_check_collision(BitFrame_Rectangle2D *a, BitFrame_Rectangle2D *b);
+
+int bit_frame_init_mouse(const char *dev_name);
+void bit_frame_poll_mouse(BitFrame_MouseEvent *mpack,int screen_w,int screen_h);
 
 void init_bit_frame_context(BitFrame_Context *ctx){
   ctx->fd = open("/dev/fb0",O_RDWR);
@@ -290,5 +313,54 @@ void bit_frame_draw_text(BitFrame_Context *fctx,BitFrame_FontInstance *font_inst
       }
     }
     cursor_x += g->advance;
+  }
+}
+
+BitFrame_TextMetrics bit_frame_measure_text(BitFrame_FontInstance *font,const char *__restrict__ text){
+  BitFrame_TextMetrics metrics = {0,0};
+  for(int ch = 0;text[ch] != '\0';ch++){
+    BitFrame_Glyps *g = &font->glyph_cached[(int)text[ch]];
+    metrics.width += g->advance;
+    int glyph_height = g->width + g->y_offset;
+    if(glyph_height > metrics.height) metrics.height = glyph_height;
+  }
+  return metrics;
+}
+
+void bit_frame_close_font(BitFrame_FontInstance *font){
+  if(font->ttf_buffer) free(font->ttf_buffer);
+}
+
+int bit_frame_init_mouse(const char *dev_name){
+  int fd = open(dev_name,O_RDONLY | O_NONBLOCK);
+  if(fd < 0){
+    fprintf(stderr,"ERR: failed init mouse\n");
+    return -1;
+  }
+  return fd;
+}
+
+void bit_frame_poll_mouse(BitFrame_MouseEvent *mpack,int screen_w,int screen_h){
+  struct input_event ev;
+  while(read(mpack->fd,&ev,sizeof(ev)) > 0){
+    if(ev.type == EV_REL){
+      if(ev.code == REL_X){
+        mpack->x += ev.value;
+        if(mpack->x < 0) mpack->x = 0;
+        if(mpack->x >= screen_w) mpack->x = screen_w - 1;
+      }
+      if(ev.code == REL_Y){
+        mpack->y += ev.value;
+        if(mpack->y < 0) mpack->y = 0;
+        if(mpack->y >= screen_h) mpack->y = screen_h - 1;
+      }
+    }
+
+    if(ev.type == EV_KEY){
+      int pressed = ev.value;
+      if(ev.code == BTN_LEFT) mpack->left = pressed;
+      if(ev.code == BTN_RIGHT) mpack->right = pressed;
+      if(ev.code == BTN_MIDDLE) mpack->middle = pressed;
+    }
   }
 }

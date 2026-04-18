@@ -54,6 +54,7 @@ typedef struct BitFrame_SharedInstance {
   BitFrame_Context *shared_context_ref;
 
   /* saved = runtime,dll */
+  void **shared_instance;
   uint32_t flags_shared;
 } BitFrame_SharedInstance;
 
@@ -69,6 +70,11 @@ typedef struct BitFrame_Glyps
   int advance;
 } BitFrame_Glyps;
 
+typedef struct BitFrame_TextMetrics {
+  int width;
+  int height;
+} BitFrame_TextMetrics;
+
 typedef struct BitFrame_FontInstance
 {
   FILE *ttf_file;
@@ -80,6 +86,15 @@ typedef struct BitFrame_FontInstance
 
   BitFrame_Glyps glyph_cached[128];
 } BitFrame_FontInstance;
+
+typedef struct BitFrame_MouseEvent {
+  int x;
+  int y;
+  int left;
+  int right;
+  int middle;
+  int fd;
+} BitFrame_MouseEvent;
 
 extern void init_bit_frame_context(BitFrame_Context *fbctx);
 extern void *alloc_bit_frame_buffer(BitFrame_Context *fctx);
@@ -97,10 +112,16 @@ extern int bit_frame_reset_terminal(BitFrame_TerminalSettings *fb_term);
 extern void bit_frame_context_present(BitFrame_Context *ctx);
 extern int bit_frame_check_collision(BitFrame_Rectangle2D *a, BitFrame_Rectangle2D *b);
 
-int bit_frame_init_load_font_instance(BitFrame_Context *ctx,BitFrame_FontInstance *bfont,const char *ttf_path,
+extern BitFrame_TextMetrics bit_frame_measure_text(BitFrame_FontInstance *font,const char *__restrict__ text);
+
+extern int bit_frame_init_load_font_instance(BitFrame_Context *ctx,BitFrame_FontInstance *bfont,const char *ttf_path,
   float ttf_size);
-void bit_frame_load_font_to_cached(BitFrame_FontInstance *font_instance);
-void bit_frame_draw_text(BitFrame_Context *fctx,BitFrame_FontInstance *font_instance,int x,int y,
+extern void bit_frame_load_font_to_cached(BitFrame_FontInstance *font_instance);
+extern void bit_frame_draw_text(BitFrame_Context *fctx,BitFrame_FontInstance *font_instance,int x,int y,
   const char *text,uint32_t color);
+extern void bit_frame_close_font(BitFrame_FontInstance *font);
+
+extern int bit_frame_init_mouse(const char *dev_name);
+extern void bit_frame_poll_mouse(BitFrame_MouseEvent *mpack,int screen_w,int screen_h);
 
 #endif //BITFRAME_CONTEXT_H
